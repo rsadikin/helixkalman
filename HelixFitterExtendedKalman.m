@@ -1,4 +1,4 @@
-function [Ak,P,Pm,residue] = HelixFitterExtendedKalman(M =  csvread("1541HelixZPos.csv"),Pc =[-55 -110]', r= 22, tanLamda = (-60 / (2 * pi) )/r,processError=[5 5 5 5 5]',measError=[0.1 0.1 0.1]')
+function [Ak,P,Pm,Residue,Chi2] = HelixFitterExtendedKalman(M =  csvread("1541HelixZPos.csv"),Pc =[-55 -110]', r= 22, tanLamda = (-60 / (2 * pi) )/r,processError=[5 5 5 5 5]',measError=[0.1 0.1 0.1]')
 
 % INPUT
 %
@@ -13,21 +13,18 @@ function [Ak,P,Pm,residue] = HelixFitterExtendedKalman(M =  csvread("1541HelixZP
 % Ak : process model for each pivot A(:,i) = [dr_i theta_i dz_i R tanLamda]
 % P  : measurement points
 % Pm : estimation points
-% residue : distance between P and Pm
+% Residue : distance between P and Pm
+% Chi2 : list of chisquare for each states 
+%
+% Usage example
+%
+% [Ak,P,Pm,Residue,Chi2] = HelixFitterExtendedKalman(M =  csvread("1541HelixZPos.csv"),Pc =[-55 -110]',r= 22, tanLamda = (-120 / (2 * pi) )/r,processError=[10 1 1 10 1]',measError=[r/10 r/10 r/10]');
+% Chi2 = sum(Chi2) / (length(Chi2) - 1); % smaller better 1 << fit, 
 
 xc = Pc(1);
 yc = Pc(2);
 
 % first guess
-r = r;
-tanLamdaFirst = tanLamda;
-
-finish = 75;
-
-
-% M  = csvread("1541HelixZPos.csv");
-
-
 
 x0 =M(1,1);
 y0 =M(1,2);
@@ -53,6 +50,7 @@ z0 =M(1,3);
 
 Theta(1) = theta0;
 Dr(1) = dR;
+
 %eA = [0.1 0.01 0 0 0]';
 %Ck = cov(eA * eA');
 Ck = zeros(5,5*length(X));
@@ -110,9 +108,9 @@ for i=2:length(X)
 
  Xm(i) = x0 + Dr(i-1)*cos(theta0) + r * (cos(theta) - cos(theta0));
  Ym(i) = y0 + Dr(i-1)*sin(theta0) + r * (sin(theta) - sin(theta0));
- Zm(i) = z0 + r * tanLamda * (deltaTheta);
- Dz(i) = z - Zm(i) ;
- Zm(i) = Zm(i) + Dz(i);
+ Zm(i) = z0 + r * tanLamda * (deltaTheta) + Ak(3,i-1);
+ Dz(i) = Zm(i) - z ;
+ % Zm(i) = Zm(i) + Dz(i);
  %% Prediction
 
 
@@ -135,9 +133,20 @@ for i=2:length(X)
       cos(theta)-cos(theta0) sin(theta)-sin(theta0) 0;
 	  0 0 r*deltaTheta]';
 
+
+
+ %Xm(i) = xc + (Ak(4,i) + Ak(1,i)) * cos(Ak(2,i));
+ %Ym(i) = yc + (Ak(4,i) + Ak(1,i)) * sin(Ak(2,i));
+ %Zm(i) = z + Ak(3,i);
+
+ Xm(i) = x0 +  Ak(1,i-1)*cos( Ak(2,i-1)) + Ak(4,i-1) * (cos(theta) - cos(Ak(2,i-1)));
+ Ym(i) = y0 +  Ak(1,i-1)*sin( Ak(2,i-1)) + Ak(4,i-1) * (sin(theta) - sin(Ak(2,i-1)));
+ Zm(i) = z0 +  Ak(4,i-1) * Ak(5,i-1) * (deltaTheta) + Ak(3,i-1);
+
  Kk = (Ck(1:5,(i-1)*5+1:i*5)^-1 + Hk'*Gk*Hk)^-1 * Hk' * Gk;
  Ck(1:5,(i-1)*5+1:i*5) = (eye(5) - Kk*Hk) * Ck(1:5,(i-1)*5+1:i*5);
- 
+
+
  Ak(:,i) = Ak(:,i) + Kk * [(X(i) - Xm(i)) (Y(i) - Ym(i)) (Z(i) - Zm(i))]';
  r = Ak(4,i);
  tanLamda = Ak(5,i);
@@ -174,7 +183,7 @@ if (theta0 < -pi)
 	theta0 = 2*pi + theta0;
 endif
 
-for i=1:length(X)
+for i=2:length(X)
  x = M(i,1);
  y = M(i,2);
  z = M(i,3);
@@ -189,7 +198,7 @@ for i=1:length(X)
  endif
 
 
- deltaTheta = theta - theta0;
+ deltaTheta = theta -newAk(2,i-1);
  % normalize deltaTheta  
  if (deltaTheta > pi)
 	deltaTheta = deltaTheta- 2*pi;
@@ -198,19 +207,24 @@ for i=1:length(X)
 	deltaTheta = 2*pi + deltaTheta;
  endif
 
- Xm(i) = xc + (newAk(4,i) + newAk(1,i)) * cos(newAk(2,i));
- Ym(i) = yc + (newAk(4,i) + newAk(1,i)) * sin(newAk(2,i));
- Zm(i) = z;
+ Xm(i) = x0 +  newAk(1,i-1)*cos( newAk(2,i-1)) + newAk(4,i-1) * (cos(theta) - cos(newAk(2,i-1)));
+ Ym(i) = y0 +  newAk(1,i-1)*sin( newAk(2,i-1)) + newAk(4,i-1) * (sin(theta) - sin(newAk(2,i-1)));
+ Zm(i) = z0 +  newAk(4,i-1) * newAk(5,i-1) * (deltaTheta) + Ak(3,i-1);
+
  theta0 = theta;
 
  x0 = x;
  y0 = y;
  z0 = z;
 
- residue(i) = sqrt((Xm(i) - X(i))^2 + (Ym(i) - Y(i))^2 + (Zm(i) - Z(i))^2);       
+ Residue(i) = sqrt((Xm(i) - X(i))^2 + (Ym(i) - Y(i))^2 + (Zm(i) - Z(i))^2);
+
+ errorModelMeas =[(X(i) - Xm(i)) (Y(i) - Ym(i)) (Z(i) - Zm(i))]';       
+ Chi2(i) = (errorModelMeas'*Gk*errorModelMeas)/2;
 endfor
 
 P  = [X' Y' Z'];
 Pm = [Xm' Ym' Zm'];
+Ak = newAk;
 endfunction
 
