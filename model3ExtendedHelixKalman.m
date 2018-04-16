@@ -2,6 +2,7 @@ clear all;
 close all;
 
 A =csvread("1541HelixZPos.csv");
+%A =csvread("1540Helix.csv");
 S = A(:,3);
 x0=A(1,1)
 y0=A(1,2)
